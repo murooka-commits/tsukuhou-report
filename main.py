@@ -18,8 +18,8 @@ SHOPSERVE_ID      = os.environ["SHOPSERVE_ID"]
 SHOPSERVE_PASS    = os.environ["SHOPSERVE_PASS"]
 DROPBOX_TOKEN     = os.environ["DROPBOX_TOKEN"]
 
-REPORT_URL = "https://kanri9.shopserve.jp/tsukuhou.ko/func01/bil_report_sps.cgi"
 LOGIN_URL  = "https://kanri9.shopserve.jp/tsukuhou.ko/"
+REPORT_URL = "https://kanri9.shopserve.jp/tsukuhou.ko/func01/bil_report_sps.cgi"
 
 # ─── ① ショップサーブへログイン＆PDFダウンロード ─────────────
 def download_pdf() -> str:
@@ -52,73 +52,61 @@ def download_pdf() -> str:
         driver.get(LOGIN_URL)
         time.sleep(3)
 
-        # ページソースをデバッグ出力（先頭2000文字）
-        page_source = driver.page_source
-        print("=== ページソース（先頭2000文字）===")
-        print(page_source[:2000])
-        print("=== ここまで ===")
-
-        # ログインフォームを探す（複数の方法を試みる）
-        id_field = None
-        try:
-            id_field = wait.until(
-                EC.presence_of_element_located((By.NAME, "login_id"))
-            )
-            print("login_id フィールド発見（name属性）")
-        except Exception:
-            print("login_id（name）が見つからない。別の要素を試します...")
-            try:
-                id_field = driver.find_element(By.ID, "login_id")
-                print("login_id フィールド発見（id属性）")
-            except Exception:
-                try:
-                    id_field = driver.find_element(By.CSS_SELECTOR, "input[type='text']")
-                    print("テキスト入力フィールド発見（CSS）")
-                except Exception:
-                    inputs = driver.find_elements(By.TAG_NAME, "input")
-                    print(f"ページ上のinput要素数: {len(inputs)}")
-                    for i, inp in enumerate(inputs):
-                        print(
-                            f"  input[{i}]: type={inp.get_attribute('type')}, "
-                            f"name={inp.get_attribute('name')}, "
-                            f"id={inp.get_attribute('id')}"
-                        )
-                    raise Exception("ログインフォームが見つかりません")
-
-        # パスワードフィールドを探す
-        try:
-            pass_field = driver.find_element(By.NAME, "password")
-        except Exception:
-            try:
-                pass_field = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-            except Exception:
-                pass_field = driver.find_elements(By.TAG_NAME, "input")[1]
+        # フォーム名=ENTER、ユーザー名フィールド=USERNAME
+        print("ログインフォームへ入力...")
+        id_field = wait.until(
+            EC.presence_of_element_located((By.NAME, "USERNAME"))
+        )
+        pass_field = driver.find_element(By.NAME, "PASSWORD")
 
         id_field.clear()
         id_field.send_keys(SHOPSERVE_ID)
         pass_field.clear()
         pass_field.send_keys(SHOPSERVE_PASS)
 
-        # ログインボタン
-        try:
-            login_btn = driver.find_element(By.CSS_SELECTOR, "input[type='submit']")
-        except Exception:
-            try:
-                login_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-            except Exception:
-                login_btn = driver.find_element(By.TAG_NAME, "button")
-
-        login_btn.click()
+        # JavaScriptでフォーム送信（loginSetup()を呼ぶ）
+        driver.execute_script("loginSetup();")
         time.sleep(3)
         print(f"ログイン後URL: {driver.current_url}")
 
-        # レポートページへ
+        # ─── レポートページへ ───
         print(f"レポートページへアクセス: {REPORT_URL}")
         driver.get(REPORT_URL)
-        time.sleep(5)
+        time.sleep(3)
         print(f"レポートページURL: {driver.current_url}")
 
-        # ダウンロード完了待ち（最大90秒）
+        # ページ上のリンクを確認（PDFリンクを探す）
+        links = driver.find_elements(By.TAG_NAME, "a")
+        pdf_links = [l.get_attribute("href") for l in links if l.get_attribute("href") and ".pdf" in (l.get_attribute("href") or "")]
+        print(f"PDFリンク一覧: {pdf_links}")
+
+        # PDFリンクがあればrequestsで直接ダウンロード
+        if pdf_links:
+            pdf_url = pdf_links[0]
+            print(f"PDFを直接ダウンロード: {pdf_url}")
+
+            # Seleniumのクッキーを取得してrequestsセッションに引き継ぐ
+            session = requests.Session()
+            for cookie in driver.get_cookies():
+                session.cookies.set(cookie["name"], cookie["value"])
+
+            resp = session.get(pdf_url, timeout=60)
+            resp.raise_for_status()
+
+            # ファイル名を決定
+            filename = pdf_url.split("/")[-1].split("?")[0]
+            if not filename.endswith(".pdf"):
+                now = datetime.now()
+                filename = f"bil_report_{now.strftime('%Y%m%d')}.pdf"
+
+            pdf_path = os.path.join(download_dir, filename)
+            with open(pdf_path, "wb") as f:
+                f.write(resp.content)
+            print(f"PDF保存完了: {pdf_path} ({len(resp.content)} bytes)")
+            return pdf_path
+
+        # PDFリンクが見つからない場合はSeleniumのダウンロードを待つ
+        print("PDFリンクが見つからない。ダウンロード完了を待機...")
         pdf_path = None
         for i in range(90):
             files = [
@@ -132,17 +120,14 @@ def download_pdf() -> str:
                 )
                 pdf_path = os.path.join(download_dir, files[0])
                 print(f"PDFダウンロード完了: {pdf_path}")
-                break
+                return pdf_path
             if i % 10 == 0:
                 print(f"  ダウンロード待機中... {i}秒")
             time.sleep(1)
 
-        if not pdf_path:
-            all_files = os.listdir(download_dir)
-            print(f"ダウンロードディレクトリの中身: {all_files}")
-            raise FileNotFoundError("PDFのダウンロードがタイムアウトしました")
-
-        return pdf_path
+        all_files = os.listdir(download_dir)
+        print(f"ダウンロードディレクトリの中身: {all_files}")
+        raise FileNotFoundError("PDFが見つかりませんでした")
 
     finally:
         driver.quit()
