@@ -2,8 +2,8 @@ name: 月次レポート自動送信
 
 on:
   schedule:
-    - cron: '0 0 1 * *'  # 毎月1日 午前9時（日本時間）に実行
-  workflow_dispatch:      # 手動実行も可能
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
 
 jobs:
   send-report:
@@ -11,10 +11,10 @@ jobs:
 
     steps:
       - name: リポジトリを取得
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Pythonをセットアップ
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -23,7 +23,7 @@ jobs:
 
       - name: 必要なライブラリをインストール
         run: |
-          pip install selenium requests
+          pip install selenium requests google-auth google-auth-httplib2 google-api-python-client
 
       - name: ChromeDriverをインストール
         run: |
@@ -35,4 +35,5 @@ jobs:
           SHOPSERVE_PASS: ${{ secrets.SHOPSERVE_PASS }}
           LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: python main.py
