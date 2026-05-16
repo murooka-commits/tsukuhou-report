@@ -19,6 +19,7 @@ SHOPSERVE_PASS = os.environ["SHOPSERVE_PASS"]
 LINE_ACCESS_TOKEN = os.environ["LINE_ACCESS_TOKEN"]
 LINE_USER_ID = os.environ["LINE_USER_ID"]
 GOOGLE_CREDENTIALS = os.environ["GOOGLE_CREDENTIALS"]
+FOLDER_ID = "1iwMO3eyay4WSXzX2tNhohIKI1DnMWwOX"
 
 LOGIN_URL = "https://kanri9.shopserve.jp/index.cgi"
 REPORT_URL = f"https://kanri9.shopserve.jp/{SHOPSERVE_ID}/func01/bil_report_sps.cgi"
@@ -92,7 +93,11 @@ def upload_to_google_drive(pdf_path):
     month_str = last_month.strftime("%Y年%m月")
     file_name = f"佃宝_{month_str}_振込明細書.pdf"
 
-    file_metadata = {"name": file_name, "mimeType": "application/pdf"}
+    file_metadata = {
+        "name": file_name,
+        "mimeType": "application/pdf",
+        "parents": [FOLDER_ID]
+    }
     media = MediaFileUpload(pdf_path, mimetype="application/pdf")
     file = service.files().create(
         body=file_metadata,
