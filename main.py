@@ -1,7 +1,6 @@
 import os
 import time
 import glob
-import json
 import requests
 from datetime import datetime, timedelta
 from selenium import webdriver
@@ -9,17 +8,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 
 # ===== 設定 =====
 SHOPSERVE_ID = os.environ["SHOPSERVE_ID"]
 SHOPSERVE_PASS = os.environ["SHOPSERVE_PASS"]
 LINE_ACCESS_TOKEN = os.environ["LINE_ACCESS_TOKEN"]
 LINE_USER_ID = os.environ["LINE_USER_ID"]
-GOOGLE_CREDENTIALS = os.environ["GOOGLE_CREDENTIALS"]
-FOLDER_ID = "1iwMO3eyay4WSXzX2tNhohIKI1DnMWwOX"
 
 LOGIN_URL = "https://kanri9.shopserve.jp/index.cgi"
 REPORT_URL = f"https://kanri9.shopserve.jp/{SHOPSERVE_ID}/func01/bil_report_sps.cgi"
@@ -78,75 +72,81 @@ def download_pdf():
     print(f"PDFファイル: {pdf_path}")
     return pdf_path
 
-def upload_to_google_drive(pdf_path):
-    print("Google Driveにアップロード中...")
+def upload_line_file(pdf_path):
+    """LINE APIにPDFをアップロードしてmessage_idを取得"""
+    print("LINEにPDFをアップロード中...")
 
-    creds_dict = json.loads(GOOGLE_CREDENTIALS)
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/drive"]
-    )
+    headers = {"Authorization": f"Bearer {LINE_ACCESS_TOKEN}"}
 
-    service = build("drive", "v3", credentials=creds)
+    with open(pdf_path, "rb") as f:
+        response = requests.post(
+            "https://api-data.line.me/v2/bot/message/upload/multipart",
+            headers=headers,
+            files={"file": (os.path.basename(pdf_path), f, "application/pdf")},
+            data={"type": "file"}
+        )
+
+    print(f"アップロード結果: {response.status_code} {response.text}")
+
+    if response.status_code == 200:
+        return response.json().get("messageId")
+    else:
+        return None
+
+def send_line_message(pdf_path):
+    """LINEにメッセージとPDFを送信"""
+    print("LINEにメッセージを送信中...")
 
     last_month = datetime.now().replace(day=1) - timedelta(days=1)
     month_str = last_month.strftime("%Y年%m月")
-    file_name = f"佃宝_{month_str}_振込明細書.pdf"
-
-    file_metadata = {
-        "name": file_name,
-        "mimeType": "application/pdf",
-        "parents": [FOLDER_ID]
-    }
-    media = MediaFileUpload(pdf_path, mimetype="application/pdf")
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id"
-    ).execute()
-
-    file_id = file.get("id")
-    print(f"アップロード完了！ファイルID: {file_id}")
-
-    service.permissions().create(
-        fileId=file_id,
-        body={"type": "anyone", "role": "reader"}
-    ).execute()
-
-    share_link = f"https://drive.google.com/file/d/{file_id}/view"
-    print(f"共有リンク: {share_link}")
-    return share_link, month_str
-
-def send_line_message(share_link, month_str):
-    print("LINEにメッセージを送信中...")
 
     headers = {
         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
-    message = f"お世話になっております。\nCPSTYLE八王子です。\n\n{month_str}分の振込明細書をお送りします。\n\n▼ PDFはこちらからご確認ください\n{share_link}"
-
-    data = {
+    # まずテキストメッセージを送信
+    text_data = {
         "to": LINE_USER_ID,
-        "messages": [{"type": "text", "text": message}]
+        "messages": [{
+            "type": "text",
+            "text": f"お世話になっております。\nCPSTYLE八王子です。\n\n{month_str}分の振込明細書をお送りします。"
+        }]
     }
 
     response = requests.post(
         "https://api.line.me/v2/bot/message/push",
         headers=headers,
-        json=data
+        json=text_data
     )
-    print(f"LINE送信結果: {response.status_code} {response.text}")
+    print(f"テキスト送信結果: {response.status_code}")
 
-    if response.status_code != 200:
-        raise Exception(f"LINE送信エラー: {response.status_code} {response.text}")
+    # PDFをアップロードしてmessage_idを取得
+    message_id = upload_line_file(pdf_path)
+
+    if message_id:
+        # PDFファイルメッセージを送信
+        file_data = {
+            "to": LINE_USER_ID,
+            "messages": [{
+                "type": "file",
+                "originalContentUrl": f"https://api-data.line.me/v2/bot/message/{message_id}/content",
+                "previewImageUrl": f"https://api-data.line.me/v2/bot/message/{message_id}/content/preview"
+            }]
+        }
+        file_response = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers=headers,
+            json=file_data
+        )
+        print(f"PDF送信結果: {file_response.status_code} {file_response.text}")
+    else:
+        print("PDFアップロード失敗。テキストのみ送信しました。")
 
     print("LINE送信完了！")
 
 if __name__ == "__main__":
     print("=== 月次レポート自動送信開始 ===")
     pdf_path = download_pdf()
-    share_link, month_str = upload_to_google_drive(pdf_path)
-    send_line_message(share_link, month_str)
+    send_line_message(pdf_path)
     print("=== 完了 ===")
