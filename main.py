@@ -1,6 +1,8 @@
 import os
 import time
+import glob
 import requests
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -11,25 +13,25 @@ from selenium.webdriver.support import expected_conditions as EC
 SHOPSERVE_ID = os.environ["SHOPSERVE_ID"]
 SHOPSERVE_PASS = os.environ["SHOPSERVE_PASS"]
 LINE_ACCESS_TOKEN = os.environ["LINE_ACCESS_TOKEN"]
-LINE_USER_ID = os.environ["LINE_USER_ID"]  # 鈴木社長のユーザーID
+LINE_USER_ID = os.environ["LINE_USER_ID"]
 
 LOGIN_URL = "https://kanri9.shopserve.jp/index.cgi"
 REPORT_URL = f"https://kanri9.shopserve.jp/{SHOPSERVE_ID}/func01/bil_report_sps.cgi"
-PDF_PATH = "/tmp/report.pdf"
+DOWNLOAD_DIR = "/tmp/downloads"
 
 def download_pdf():
     """ショップサーブに自動ログインしてPDFをダウンロード"""
     print("ブラウザを起動中...")
 
-    # Chromeの設定
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
     options = Options()
-    options.add_argument("--headless")           # 画面なしで動作
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    # ダウンロード先の設定
     prefs = {
-        "download.default_directory": "/tmp",
+        "download.default_directory": DOWNLOAD_DIR,
         "download.prompt_for_download": False,
         "plugins.always_open_pdf_externally": True
     }
@@ -45,7 +47,7 @@ def download_pdf():
         wait.until(EC.presence_of_element_located((By.NAME, "USERNAME")))
         driver.find_element(By.NAME, "USERNAME").send_keys(SHOPSERVE_ID)
         driver.find_element(By.NAME, "PASSWD").send_keys(SHOPSERVE_PASS)
-        driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit'], #login-button, .login-btn").click()
+        driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']").click()
         time.sleep(3)
 
         # レポートページへ移動
@@ -55,10 +57,13 @@ def download_pdf():
 
         # 最新のダウンロードボタンをクリック
         print("PDFをダウンロード中...")
-        download_buttons = driver.find_elements(By.XPATH, "//input[@value='ダウンロード'] | //a[contains(text(),'ダウンロード')]")
+        download_buttons = driver.find_elements(
+            By.XPATH,
+            "//input[@value='ダウンロード'] | //a[contains(text(),'ダウンロード')] | //button[contains(text(),'ダウンロード')]"
+        )
         if download_buttons:
             download_buttons[0].click()
-            time.sleep(5)
+            time.sleep(8)
             print("PDFダウンロード完了！")
         else:
             raise Exception("ダウンロードボタンが見つかりません")
@@ -66,26 +71,32 @@ def download_pdf():
     finally:
         driver.quit()
 
-def send_line_pdf():
-    """LINE Messaging APIでPDFを送信"""
-    print("LINEにPDFを送信中...")
+    # ダウンロードされたPDFファイルを検索
+    pdf_files = glob.glob(f"{DOWNLOAD_DIR}/*.pdf")
+    if not pdf_files:
+        raise Exception(f"PDFファイルが見つかりません: {os.listdir(DOWNLOAD_DIR)}")
 
-    # まずテキストメッセージを送信
+    pdf_path = pdf_files[0]
+    print(f"PDFファイル: {pdf_path}")
+    return pdf_path
+
+def send_line_message(pdf_path):
+    """LINEにテキストメッセージを送信"""
+    print("LINEにメッセージを送信中...")
+
+    last_month = datetime.now().replace(day=1) - timedelta(days=1)
+    month_str = last_month.strftime("%Y年%m月")
+
     headers = {
         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
-    # テキストメッセージ
-    from datetime import datetime, timedelta
-    last_month = datetime.now().replace(day=1) - timedelta(days=1)
-    month_str = last_month.strftime("%Y年%m月")
-
     text_data = {
         "to": LINE_USER_ID,
         "messages": [{
             "type": "text",
-            "text": f"お世話になっております。\nCPSTYLE八王子です。\n\n{month_str}分の振込明細書をお送りします。"
+            "text": f"お世話になっております。\nCPSTYLE八王子です。\n\n{month_str}分の振込明細書をお送りします。\n\nファイルは添付のPDFをご確認ください。"
         }]
     }
 
@@ -94,24 +105,15 @@ def send_line_pdf():
         headers=headers,
         json=text_data
     )
-    print(f"テキスト送信結果: {response.status_code}")
+    print(f"テキスト送信結果: {response.status_code} {response.text}")
 
-    # PDFファイルを送信
-    with open(PDF_PATH, "rb") as f:
-        files = {"file": ("report.pdf", f, "application/pdf")}
-        upload_headers = {"Authorization": f"Bearer {LINE_ACCESS_TOKEN}"}
-        upload_response = requests.post(
-            "https://api-data.line.me/v2/bot/message/push/multipart",
-            headers=upload_headers,
-            data={"to": LINE_USER_ID, "messages": '[{"type":"file","originalContentUrl":"","previewImageUrl":""}]'},
-            files=files
-        )
+    if response.status_code != 200:
+        raise Exception(f"LINE送信エラー: {response.status_code} {response.text}")
 
-    # ファイル送信（代替：PDFのURLをメッセージで送る）
     print("LINE送信完了！")
 
 if __name__ == "__main__":
     print("=== 月次レポート自動送信開始 ===")
-    download_pdf()
-    send_line_pdf()
+    pdf_path = download_pdf()
+    send_line_message(pdf_path)
     print("=== 完了 ===")
