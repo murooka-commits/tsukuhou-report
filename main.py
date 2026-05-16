@@ -42,10 +42,10 @@ def download_pdf():
         # ログイン
         print("ログイン中...")
         driver.get(LOGIN_URL)
-        wait.until(EC.presence_of_element_located((By.NAME, "shop_id")))
-        driver.find_element(By.NAME, "shop_id").send_keys(SHOPSERVE_ID)
-        driver.find_element(By.NAME, "password").send_keys(SHOPSERVE_PASS)
-        driver.find_element(By.CSS_SELECTOR, "input[type='submit']").click()
+        wait.until(EC.presence_of_element_located((By.NAME, "USERNAME")))
+        driver.find_element(By.NAME, "USERNAME").send_keys(SHOPSERVE_ID)
+        driver.find_element(By.NAME, "PASSWD").send_keys(SHOPSERVE_PASS)
+        driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit'], #login-button, .login-btn").click()
         time.sleep(3)
 
         # レポートページへ移動
