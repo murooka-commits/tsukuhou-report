@@ -72,29 +72,27 @@ def download_pdf():
     print(f"PDFファイル: {pdf_path}")
     return pdf_path
 
-def upload_line_file(pdf_path):
-    """LINE APIにPDFをアップロードしてmessage_idを取得"""
-    print("LINEにPDFをアップロード中...")
+def upload_to_transfer(pdf_path):
+    """transfer.shにPDFをアップロードしてURLを取得"""
+    print("transfer.shにアップロード中...")
 
-    headers = {"Authorization": f"Bearer {LINE_ACCESS_TOKEN}"}
-
+    filename = os.path.basename(pdf_path)
     with open(pdf_path, "rb") as f:
-        response = requests.post(
-            "https://api-data.line.me/v2/bot/message/upload/multipart",
-            headers=headers,
-            files={"file": (os.path.basename(pdf_path), f, "application/pdf")},
-            data={"type": "file"}
+        response = requests.put(
+            f"https://transfer.sh/{filename}",
+            data=f,
+            headers={"Max-Days": "7"}  # 7日間有効
         )
 
-    print(f"アップロード結果: {response.status_code} {response.text}")
-
     if response.status_code == 200:
-        return response.json().get("messageId")
+        url = response.text.strip()
+        print(f"アップロード完了！URL: {url}")
+        return url
     else:
-        return None
+        raise Exception(f"アップロード失敗: {response.status_code} {response.text}")
 
-def send_line_message(pdf_path):
-    """LINEにメッセージとPDFを送信"""
+def send_line_message(pdf_url):
+    """LINEにメッセージとURLを送信"""
     print("LINEにメッセージを送信中...")
 
     last_month = datetime.now().replace(day=1) - timedelta(days=1)
@@ -105,48 +103,34 @@ def send_line_message(pdf_path):
         "Content-Type": "application/json"
     }
 
-    # まずテキストメッセージを送信
-    text_data = {
+    message = (
+        f"お世話になっております。\n"
+        f"CPSTYLE八王子です。\n\n"
+        f"{month_str}分の振込明細書をお送りします。\n\n"
+        f"▼ PDFをダウンロード（7日間有効）\n"
+        f"{pdf_url}"
+    )
+
+    data = {
         "to": LINE_USER_ID,
-        "messages": [{
-            "type": "text",
-            "text": f"お世話になっております。\nCPSTYLE八王子です。\n\n{month_str}分の振込明細書をお送りします。"
-        }]
+        "messages": [{"type": "text", "text": message}]
     }
 
     response = requests.post(
         "https://api.line.me/v2/bot/message/push",
         headers=headers,
-        json=text_data
+        json=data
     )
-    print(f"テキスト送信結果: {response.status_code}")
+    print(f"LINE送信結果: {response.status_code} {response.text}")
 
-    # PDFをアップロードしてmessage_idを取得
-    message_id = upload_line_file(pdf_path)
-
-    if message_id:
-        # PDFファイルメッセージを送信
-        file_data = {
-            "to": LINE_USER_ID,
-            "messages": [{
-                "type": "file",
-                "originalContentUrl": f"https://api-data.line.me/v2/bot/message/{message_id}/content",
-                "previewImageUrl": f"https://api-data.line.me/v2/bot/message/{message_id}/content/preview"
-            }]
-        }
-        file_response = requests.post(
-            "https://api.line.me/v2/bot/message/push",
-            headers=headers,
-            json=file_data
-        )
-        print(f"PDF送信結果: {file_response.status_code} {file_response.text}")
-    else:
-        print("PDFアップロード失敗。テキストのみ送信しました。")
+    if response.status_code != 200:
+        raise Exception(f"LINE送信エラー: {response.status_code} {response.text}")
 
     print("LINE送信完了！")
 
 if __name__ == "__main__":
     print("=== 月次レポート自動送信開始 ===")
     pdf_path = download_pdf()
-    send_line_message(pdf_path)
+    pdf_url = upload_to_transfer(pdf_path)
+    send_line_message(pdf_url)
     print("=== 完了 ===")
