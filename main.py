@@ -1,137 +1,166 @@
 import os
 import time
-import glob
 import requests
-from datetime import datetime, timedelta
+import dropbox
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# ===== 設定 =====
-SHOPSERVE_ID = os.environ["SHOPSERVE_ID"]
-SHOPSERVE_PASS = os.environ["SHOPSERVE_PASS"]
+# ─── 環境変数 ────────────────────────────────────────────────
 LINE_ACCESS_TOKEN = os.environ["LINE_ACCESS_TOKEN"]
-LINE_USER_ID = os.environ["LINE_USER_ID"]
+LINE_USER_ID      = os.environ["LINE_USER_ID"]
+SHOPSERVE_ID      = os.environ["SHOPSERVE_ID"]
+SHOPSERVE_PASS    = os.environ["SHOPSERVE_PASS"]
+DROPBOX_TOKEN     = os.environ["DROPBOX_TOKEN"]
 
-LOGIN_URL = "https://kanri9.shopserve.jp/index.cgi"
-REPORT_URL = f"https://kanri9.shopserve.jp/{SHOPSERVE_ID}/func01/bil_report_sps.cgi"
-DOWNLOAD_DIR = "/tmp/downloads"
+REPORT_URL = (
+    "https://kanri9.shopserve.jp/tsukuhou.ko/func01/bil_report_sps.cgi"
+)
 
-def download_pdf():
-    print("ブラウザを起動中...")
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# ─── ① ショップサーブへログイン＆PDFダウンロード ─────────────
+def download_pdf() -> str:
+    """
+    Seleniumでショップサーブにログインし、PDFをダウンロードして
+    ローカルパスを返す。
+    """
+    download_dir = "/tmp/shopserve"
+    os.makedirs(download_dir, exist_ok=True)
 
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    prefs = {
-        "download.default_directory": DOWNLOAD_DIR,
-        "download.prompt_for_download": False,
-        "plugins.always_open_pdf_externally": True
-    }
-    options.add_experimental_option("prefs", prefs)
+    options.add_experimental_option(
+        "prefs",
+        {
+            "download.default_directory": download_dir,
+            "download.prompt_for_download": False,
+            "plugins.always_open_pdf_externally": True,
+        },
+    )
 
     driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 30)
+    wait   = WebDriverWait(driver, 30)
 
     try:
-        print("ログイン中...")
-        driver.get(LOGIN_URL)
-        wait.until(EC.presence_of_element_located((By.NAME, "USERNAME")))
-        driver.find_element(By.NAME, "USERNAME").send_keys(SHOPSERVE_ID)
-        driver.find_element(By.NAME, "PASSWD").send_keys(SHOPSERVE_PASS)
-        driver.find_element(By.CSS_SELECTOR, "button[type='submit'], input[type='submit']").click()
-        time.sleep(3)
+        # ログインページへ
+        driver.get("https://kanri9.shopserve.jp/tsukuhou.ko/")
+        wait.until(EC.presence_of_element_located((By.NAME, "login_id")))
 
-        print("レポートページへ移動中...")
+        driver.find_element(By.NAME, "login_id").send_keys(SHOPSERVE_ID)
+        driver.find_element(By.NAME, "password").send_keys(SHOPSERVE_PASS)
+        driver.find_element(By.NAME, "password").submit()
+
+        # レポートページへ
         driver.get(REPORT_URL)
         time.sleep(3)
 
-        print("PDFをダウンロード中...")
-        download_buttons = driver.find_elements(
-            By.XPATH,
-            "//input[@value='ダウンロード'] | //a[contains(text(),'ダウンロード')] | //button[contains(text(),'ダウンロード')]"
-        )
-        if download_buttons:
-            download_buttons[0].click()
-            time.sleep(8)
-            print("PDFダウンロード完了！")
-        else:
-            raise Exception("ダウンロードボタンが見つかりません")
+        # ダウンロード完了待ち（最大60秒）
+        pdf_path = None
+        for _ in range(60):
+            files = [
+                f for f in os.listdir(download_dir)
+                if f.endswith(".pdf") and not f.endswith(".crdownload")
+            ]
+            if files:
+                # 最新ファイルを選択
+                files.sort(
+                    key=lambda f: os.path.getmtime(
+                        os.path.join(download_dir, f)
+                    ),
+                    reverse=True,
+                )
+                pdf_path = os.path.join(download_dir, files[0])
+                break
+            time.sleep(1)
+
+        if not pdf_path:
+            raise FileNotFoundError("PDFのダウンロードがタイムアウトしました")
+
+        return pdf_path
+
     finally:
         driver.quit()
 
-    pdf_files = glob.glob(f"{DOWNLOAD_DIR}/*.pdf")
-    if not pdf_files:
-        raise Exception(f"PDFファイルが見つかりません: {os.listdir(DOWNLOAD_DIR)}")
 
-    pdf_path = pdf_files[0]
-    print(f"PDFファイル: {pdf_path}")
-    return pdf_path
+# ─── ② Dropboxにアップロードして共有リンクを取得 ──────────────
+def upload_to_dropbox(pdf_path: str) -> str:
+    """
+    PDFをDropboxにアップロードし、直接ダウンロードできる共有URLを返す。
+    """
+    dbx = dropbox.Dropbox(DROPBOX_TOKEN)
 
-def upload_to_fileio(pdf_path):
-    """file.ioにPDFをアップロードしてURLを取得"""
-    print("file.ioにアップロード中...")
+    filename   = os.path.basename(pdf_path)
+    dropbox_path = f"/tsukuhou-report/{filename}"
 
     with open(pdf_path, "rb") as f:
-        response = requests.post(
-            "https://file.io/?expires=7d",
-            files={"file": (os.path.basename(pdf_path), f, "application/pdf")}
+        dbx.files_upload(
+            f.read(),
+            dropbox_path,
+            mode=dropbox.files.WriteMode.overwrite,
         )
 
-    print(f"アップロード結果: {response.status_code} {response.text}")
+    # 共有リンクを作成（既存なら取得）
+    try:
+        link_meta = dbx.sharing_create_shared_link_with_settings(dropbox_path)
+    except dropbox.exceptions.ApiError as e:
+        # すでにリンクが存在する場合
+        links = dbx.sharing_list_shared_links(path=dropbox_path).links
+        if not links:
+            raise
+        link_meta = links[0]
 
-    if response.status_code == 200:
-        data = response.json()
-        url = data.get("link")
-        print(f"アップロード完了！URL: {url}")
-        return url
-    else:
-        raise Exception(f"アップロード失敗: {response.status_code} {response.text}")
+    # dl=0 → dl=1 に変換すると直接ダウンロードリンクになる
+    shared_url = link_meta.url.replace("dl=0", "dl=1")
+    return shared_url
 
-def send_line_message(pdf_url):
-    """LINEにメッセージとURLを送信"""
-    print("LINEにメッセージを送信中...")
 
-    last_month = datetime.now().replace(day=1) - timedelta(days=1)
-    month_str = last_month.strftime("%Y年%m月")
-
+# ─── ③ LINEにテキスト＋URLを送信 ─────────────────────────────
+def send_line_message(text: str) -> None:
+    """
+    LINE Messaging API でプッシュメッセージを送信する。
+    """
+    url     = "https://api.line.me/v2/bot/message/push"
     headers = {
+        "Content-Type":  "application/json",
         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
     }
-
-    message = (
-        f"お世話になっております。\n"
-        f"CPSTYLE八王子です。\n\n"
-        f"{month_str}分の振込明細書をお送りします。\n\n"
-        f"▼ PDFをダウンロード（7日間有効）\n"
-        f"{pdf_url}"
-    )
-
-    data = {
+    payload = {
         "to": LINE_USER_ID,
-        "messages": [{"type": "text", "text": message}]
+        "messages": [{"type": "text", "text": text}],
     }
+    resp = requests.post(url, headers=headers, json=payload)
+    resp.raise_for_status()
+    print("LINE送信完了:", resp.status_code)
 
-    response = requests.post(
-        "https://api.line.me/v2/bot/message/push",
-        headers=headers,
-        json=data
+
+# ─── メイン処理 ───────────────────────────────────────────────
+def main():
+    now = datetime.now()
+    month_str = now.strftime("%Y年%-m月")   # 例: 2026年5月
+
+    print("① PDFダウンロード開始...")
+    pdf_path = download_pdf()
+    print(f"   ダウンロード完了: {pdf_path}")
+
+    print("② Dropboxアップロード開始...")
+    shared_url = upload_to_dropbox(pdf_path)
+    print(f"   アップロード完了: {shared_url}")
+
+    print("③ LINE送信開始...")
+    message = (
+        f"【{month_str}分 代金回収レポート】\n\n"
+        f"ショップサーブの月次レポートをお送りします。\n"
+        f"下記リンクよりPDFをご確認ください。\n\n"
+        f"{shared_url}"
     )
-    print(f"LINE送信結果: {response.status_code} {response.text}")
+    send_line_message(message)
 
-    if response.status_code != 200:
-        raise Exception(f"LINE送信エラー: {response.status_code} {response.text}")
+    print("✅ すべての処理が完了しました。")
 
-    print("LINE送信完了！")
 
 if __name__ == "__main__":
-    print("=== 月次レポート自動送信開始 ===")
-    pdf_path = download_pdf()
-    pdf_url = upload_to_fileio(pdf_path)
-    send_line_message(pdf_url)
-    print("=== 完了 ===")
+    main()
