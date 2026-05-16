@@ -72,20 +72,21 @@ def download_pdf():
     print(f"PDFファイル: {pdf_path}")
     return pdf_path
 
-def upload_to_transfer(pdf_path):
-    """transfer.shにPDFをアップロードしてURLを取得"""
-    print("transfer.shにアップロード中...")
+def upload_to_fileio(pdf_path):
+    """file.ioにPDFをアップロードしてURLを取得"""
+    print("file.ioにアップロード中...")
 
-    filename = os.path.basename(pdf_path)
     with open(pdf_path, "rb") as f:
-        response = requests.put(
-            f"https://transfer.sh/{filename}",
-            data=f,
-            headers={"Max-Days": "7"}  # 7日間有効
+        response = requests.post(
+            "https://file.io/?expires=7d",
+            files={"file": (os.path.basename(pdf_path), f, "application/pdf")}
         )
 
+    print(f"アップロード結果: {response.status_code} {response.text}")
+
     if response.status_code == 200:
-        url = response.text.strip()
+        data = response.json()
+        url = data.get("link")
         print(f"アップロード完了！URL: {url}")
         return url
     else:
@@ -131,6 +132,6 @@ def send_line_message(pdf_url):
 if __name__ == "__main__":
     print("=== 月次レポート自動送信開始 ===")
     pdf_path = download_pdf()
-    pdf_url = upload_to_transfer(pdf_path)
+    pdf_url = upload_to_fileio(pdf_path)
     send_line_message(pdf_url)
     print("=== 完了 ===")
