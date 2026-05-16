@@ -52,21 +52,60 @@ def download_pdf() -> str:
         driver.get(LOGIN_URL)
         time.sleep(3)
 
-        # フォーム名=ENTER、ユーザー名フィールド=USERNAME
-        print("ログインフォームへ入力...")
+        # 全inputフィールドを列挙してデバッグ
+        inputs = driver.find_elements(By.TAG_NAME, "input")
+        print(f"input要素数: {len(inputs)}")
+        for i, inp in enumerate(inputs):
+            print(
+                f"  input[{i}]: type={inp.get_attribute('type')}, "
+                f"name={inp.get_attribute('name')}, "
+                f"id={inp.get_attribute('id')}, "
+                f"class={inp.get_attribute('class')}"
+            )
+
+        # USERNAMEフィールドへ入力
+        print("USERNAMEフィールドへ入力...")
         id_field = wait.until(
             EC.presence_of_element_located((By.NAME, "USERNAME"))
         )
-        pass_field = driver.find_element(By.NAME, "PASSWORD")
-
         id_field.clear()
         id_field.send_keys(SHOPSERVE_ID)
+
+        # パスワードフィールドを複数の方法で探す
+        pass_field = None
+        for selector_type, selector in [
+            (By.NAME, "PASSWORD"),
+            (By.NAME, "PASSWD"),
+            (By.NAME, "password"),
+            (By.NAME, "passwd"),
+            (By.NAME, "pass"),
+            (By.CSS_SELECTOR, "input[type='password']"),
+        ]:
+            try:
+                pass_field = driver.find_element(selector_type, selector)
+                print(f"パスワードフィールド発見: {selector}")
+                break
+            except Exception:
+                continue
+
+        if pass_field is None:
+            # type=passwordのinputを探す
+            for inp in inputs:
+                if inp.get_attribute("type") == "password":
+                    pass_field = inp
+                    print(f"パスワードフィールド発見（type=password）: name={inp.get_attribute('name')}")
+                    break
+
+        if pass_field is None:
+            raise Exception("パスワードフィールドが見つかりません")
+
         pass_field.clear()
         pass_field.send_keys(SHOPSERVE_PASS)
 
-        # JavaScriptでフォーム送信（loginSetup()を呼ぶ）
+        # JavaScriptでログイン実行
+        print("loginSetup()を実行...")
         driver.execute_script("loginSetup();")
-        time.sleep(3)
+        time.sleep(4)
         print(f"ログイン後URL: {driver.current_url}")
 
         # ─── レポートページへ ───
@@ -75,17 +114,18 @@ def download_pdf() -> str:
         time.sleep(3)
         print(f"レポートページURL: {driver.current_url}")
 
-        # ページ上のリンクを確認（PDFリンクを探す）
+        # ページ上のリンクを確認
         links = driver.find_elements(By.TAG_NAME, "a")
-        pdf_links = [l.get_attribute("href") for l in links if l.get_attribute("href") and ".pdf" in (l.get_attribute("href") or "")]
-        print(f"PDFリンク一覧: {pdf_links}")
+        all_hrefs = [l.get_attribute("href") for l in links if l.get_attribute("href")]
+        print(f"全リンク数: {len(all_hrefs)}")
+        pdf_links = [h for h in all_hrefs if h and ".pdf" in h.lower()]
+        print(f"PDFリンク: {pdf_links}")
 
         # PDFリンクがあればrequestsで直接ダウンロード
         if pdf_links:
             pdf_url = pdf_links[0]
             print(f"PDFを直接ダウンロード: {pdf_url}")
 
-            # Seleniumのクッキーを取得してrequestsセッションに引き継ぐ
             session = requests.Session()
             for cookie in driver.get_cookies():
                 session.cookies.set(cookie["name"], cookie["value"])
@@ -93,11 +133,9 @@ def download_pdf() -> str:
             resp = session.get(pdf_url, timeout=60)
             resp.raise_for_status()
 
-            # ファイル名を決定
             filename = pdf_url.split("/")[-1].split("?")[0]
             if not filename.endswith(".pdf"):
-                now = datetime.now()
-                filename = f"bil_report_{now.strftime('%Y%m%d')}.pdf"
+                filename = f"bil_report_{datetime.now().strftime('%Y%m%d')}.pdf"
 
             pdf_path = os.path.join(download_dir, filename)
             with open(pdf_path, "wb") as f:
@@ -105,9 +143,8 @@ def download_pdf() -> str:
             print(f"PDF保存完了: {pdf_path} ({len(resp.content)} bytes)")
             return pdf_path
 
-        # PDFリンクが見つからない場合はSeleniumのダウンロードを待つ
+        # Seleniumのダウンロード待ち（フォールバック）
         print("PDFリンクが見つからない。ダウンロード完了を待機...")
-        pdf_path = None
         for i in range(90):
             files = [
                 f for f in os.listdir(download_dir)
@@ -125,8 +162,7 @@ def download_pdf() -> str:
                 print(f"  ダウンロード待機中... {i}秒")
             time.sleep(1)
 
-        all_files = os.listdir(download_dir)
-        print(f"ダウンロードディレクトリの中身: {all_files}")
+        print(f"ダウンロードディレクトリの中身: {os.listdir(download_dir)}")
         raise FileNotFoundError("PDFが見つかりませんでした")
 
     finally:
