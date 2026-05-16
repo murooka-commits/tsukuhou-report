@@ -1,0 +1,38 @@
+name: 月次レポート自動送信
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 毎月1日 午前9時（日本時間）に実行
+  workflow_dispatch:      # 手動実行も可能
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v3
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Chromeをセットアップ
+        uses: browser-actions/setup-chrome@latest
+
+      - name: 必要なライブラリをインストール
+        run: |
+          pip install selenium requests
+
+      - name: ChromeDriverをインストール
+        run: |
+          pip install webdriver-manager
+
+      - name: レポートをダウンロードしてLINEに送信
+        env:
+          SHOPSERVE_ID: ${{ secrets.SHOPSERVE_ID }}
+          SHOPSERVE_PASS: ${{ secrets.SHOPSERVE_PASS }}
+          LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python main.py
