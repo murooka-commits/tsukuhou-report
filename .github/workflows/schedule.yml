@@ -35,11 +35,8 @@ jobs:
           SHOPSERVE_PASS: ${{ secrets.SHOPSERVE_PASS }}
           LINE_ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-          DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        run: |
-          python -c "
-          import requests
-          r = requests.post('https://api.dropboxapi.com/oauth2/token', data={'code': 'iTAoXADbqpAAAAAAAAAEUXnaBosYB3dPwO7-k7RZGh8', 'grant_type': 'authorization_code', 'client_id': 'k4nveerwvjeaavs', 'client_secret': 'z5j4d0pw542yei0'})
-          print(r.json())
-          "
+        run: python main.py
