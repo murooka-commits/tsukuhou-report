@@ -2,6 +2,7 @@ import os
 import time
 import requests
 import dropbox
+from dropbox.oauth import DropboxOAuth2FlowNoRedirect
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from selenium import webdriver
@@ -13,11 +14,13 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ─── 環境変数 ────────────────────────────────────────────────
-LINE_ACCESS_TOKEN = os.environ["LINE_ACCESS_TOKEN"]
-LINE_USER_ID      = os.environ["LINE_USER_ID"]
-SHOPSERVE_ID      = os.environ["SHOPSERVE_ID"]
-SHOPSERVE_PASS    = os.environ["SHOPSERVE_PASS"]
-DROPBOX_TOKEN     = os.environ["DROPBOX_TOKEN"]
+LINE_ACCESS_TOKEN    = os.environ["LINE_ACCESS_TOKEN"]
+LINE_USER_ID         = os.environ["LINE_USER_ID"]
+SHOPSERVE_ID         = os.environ["SHOPSERVE_ID"]
+SHOPSERVE_PASS       = os.environ["SHOPSERVE_PASS"]
+DROPBOX_APP_KEY      = os.environ["DROPBOX_APP_KEY"]
+DROPBOX_APP_SECRET   = os.environ["DROPBOX_APP_SECRET"]
+DROPBOX_REFRESH_TOKEN = os.environ["DROPBOX_REFRESH_TOKEN"]
 
 LOGIN_URL  = "https://kanri9.shopserve.jp/tsukuhou.ko/"
 REPORT_URL = "https://kanri9.shopserve.jp/tsukuhou.ko/func01/bil_report_sps.cgi"
@@ -64,20 +67,13 @@ def download_pdf() -> str:
         driver.get(REPORT_URL)
         time.sleep(3)
 
-        buttons = driver.find_elements(By.TAG_NAME, "button")
-        print(f"ボタン数: {len(buttons)}")
-        for i, btn in enumerate(buttons):
-            print(f"  button[{i}]: text='{btn.text}', onclick={btn.get_attribute('onclick')}")
-
         download_btn = None
         submits = driver.find_elements(By.CSS_SELECTOR, "input[type='submit']")
         for s in submits:
             val = s.get_attribute("value") or ""
             if "ダウンロード" in val:
                 download_btn = s
-                print(f"submitダウンロードボタン発見: value='{val}'")
                 break
-
         if download_btn is None and submits:
             download_btn = submits[0]
 
@@ -109,17 +105,25 @@ def download_pdf() -> str:
 
 
 def upload_to_dropbox(pdf_path: str) -> str:
-    dbx = dropbox.Dropbox(DROPBOX_TOKEN)
+    # リフレッシュトークンで自動的に新しいアクセストークンを取得
+    dbx = dropbox.Dropbox(
+        oauth2_refresh_token=DROPBOX_REFRESH_TOKEN,
+        app_key=DROPBOX_APP_KEY,
+        app_secret=DROPBOX_APP_SECRET,
+    )
+
     filename = os.path.basename(pdf_path)
     dropbox_path = f"/tsukuhou-report/{filename}"
     with open(pdf_path, "rb") as f:
         dbx.files_upload(f.read(), dropbox_path, mode=dropbox.files.WriteMode.overwrite)
     print(f"Dropboxアップロード完了: {dropbox_path}")
+
     try:
         link_meta = dbx.sharing_create_shared_link_with_settings(dropbox_path)
     except dropbox.exceptions.ApiError:
         links = dbx.sharing_list_shared_links(path=dropbox_path).links
         link_meta = links[0]
+
     return link_meta.url.replace("dl=0", "dl=1")
 
 
@@ -137,13 +141,8 @@ def send_line_message(text: str) -> None:
 
 def main():
     now = datetime.now()
-
-    # ─── 修正箇所：実行月の「前月」を月名として使用 ───────────
-    # 毎月1日に実行されるため、送るレポートは前月分になる
-    # 例）6月1日実行 → 「5月分」のレポートを送信
     last_month = now - relativedelta(months=1)
     month_str = last_month.strftime("%Y年%-m月")
-    # ────────────────────────────────────────────────────────
 
     print("① PDFダウンロード開始...")
     pdf_path = download_pdf()
