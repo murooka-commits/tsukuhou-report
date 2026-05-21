@@ -44,17 +44,10 @@ def download_pdf() -> str:
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
-
-    # ヘッドレスでのダウンロードを有効化
-    driver.execute_cdp_cmd(
-        "Page.setDownloadBehavior",
-        {"behavior": "allow", "downloadPath": download_dir},
-    )
-
+    driver.execute_cdp_cmd("Page.setDownloadBehavior", {"behavior": "allow", "downloadPath": download_dir})
     wait = WebDriverWait(driver, 30)
 
     try:
-        # ─── ログイン ───
         driver.get(LOGIN_URL)
         time.sleep(3)
         id_field = wait.until(EC.presence_of_element_located((By.NAME, "USERNAME")))
@@ -67,57 +60,31 @@ def download_pdf() -> str:
         time.sleep(4)
         print(f"ログイン後URL: {driver.current_url}")
 
-        # ─── レポートページへ ───
         driver.get(REPORT_URL)
         time.sleep(3)
-        print(f"レポートページURL: {driver.current_url}")
 
-        # ─── ダウンロードボタンをクリック ───
-        # ボタン[0]: onclick=location('bil_report.cgi') type=submit → 最初のボタン
         buttons = driver.find_elements(By.TAG_NAME, "button")
         print(f"ボタン数: {len(buttons)}")
         for i, btn in enumerate(buttons):
             print(f"  button[{i}]: text='{btn.text}', onclick={btn.get_attribute('onclick')}")
 
-        # 「ダウンロード」テキストを含むボタンを探す
         download_btn = None
-        for btn in buttons:
-            onclick = btn.get_attribute("onclick") or ""
-            text = btn.text or ""
-            if "bil_report" in onclick or "ダウンロード" in text or "download" in onclick.lower():
-                download_btn = btn
-                print(f"ダウンロードボタン発見: text='{text}', onclick={onclick}")
+        submits = driver.find_elements(By.CSS_SELECTOR, "input[type='submit']")
+        for s in submits:
+            val = s.get_attribute("value") or ""
+            if "ダウンロード" in val:
+                download_btn = s
+                print(f"submitダウンロードボタン発見: value='{val}'")
                 break
 
-        # submitボタンも確認
-        if download_btn is None:
-            submits = driver.find_elements(By.CSS_SELECTOR, "input[type='submit']")
-            for s in submits:
-                val = s.get_attribute("value") or ""
-                if "ダウンロード" in val or "download" in val.lower():
-                    download_btn = s
-                    print(f"submitダウンロードボタン発見: value='{val}'")
-                    break
+        if download_btn is None and submits:
+            download_btn = submits[0]
 
-        if download_btn is None:
-            # フォールバック：最初のsubmitボタン
-            submits = driver.find_elements(By.CSS_SELECTOR, "input[type='submit']")
-            if submits:
-                download_btn = submits[0]
-                print(f"フォールバック：最初のsubmitボタン value='{download_btn.get_attribute('value')}'")
-
-        if download_btn is None:
-            raise Exception("ダウンロードボタンが見つかりません")
-
-        # クリック前のファイル一覧
         before_files = set(os.listdir(download_dir))
-        print(f"クリック前のファイル: {before_files}")
-
         download_btn.click()
         print("ダウンロードボタンをクリックしました")
         time.sleep(5)
 
-        # ─── ダウンロード完了待ち（最大90秒）───
         pdf_path = None
         for i in range(90):
             current_files = set(os.listdir(download_dir))
@@ -128,11 +95,10 @@ def download_pdf() -> str:
                 print(f"PDFダウンロード完了: {pdf_path} ({os.path.getsize(pdf_path)} bytes)")
                 break
             if i % 10 == 0:
-                print(f"  待機中... {i}秒 | ディレクトリ: {current_files}")
+                print(f"  待機中... {i}秒")
             time.sleep(1)
 
         if not pdf_path:
-            print(f"最終的なディレクトリの中身: {os.listdir(download_dir)}")
             raise FileNotFoundError("PDFが見つかりませんでした")
 
         return pdf_path
@@ -158,9 +124,18 @@ def upload_to_dropbox(pdf_path: str) -> str:
 
 def send_line_message(text: str) -> None:
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"}
+    headers = {
+        "Content-Type":  "application/json",
+        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
+    }
     payload = {"to": LINE_USER_ID, "messages": [{"type": "text", "text": text}]}
+    
+    print(f"LINE送信先ID: {LINE_USER_ID}")
+    print(f"IDの文字数: {len(LINE_USER_ID)}")
+    
     resp = requests.post(url, headers=headers, json=payload)
+    print(f"レスポンスステータス: {resp.status_code}")
+    print(f"レスポンス内容: {resp.text}")
     resp.raise_for_status()
     print(f"LINE送信完了: {resp.status_code}")
 
