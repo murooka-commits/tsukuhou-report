@@ -38,9 +38,4 @@ jobs:
           DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: |
-      python -c "
-      import requests, os
-      headers = {'Authorization': 'Bearer ' + os.environ['LINE_ACCESS_TOKEN']}
-      r = requests.get('https://api.line.me/v2/bot/followers/ids', headers=headers)
-      print(r.json())
-      "
+          python -c "import requests, os; headers = {'Authorization': 'Bearer ' + os.environ['LINE_ACCESS_TOKEN']}; r = requests.get('https://api.line.me/v2/bot/followers/ids', headers=headers); print(r.json())"
