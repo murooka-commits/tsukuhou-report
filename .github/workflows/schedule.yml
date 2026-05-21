@@ -41,7 +41,7 @@ jobs:
           python -c "
           import requests
           r = requests.post('https://api.dropboxapi.com/oauth2/token', data={
-            'code': 'iTAoXADbqpAAAAAAAAET6HRh-S4wVIkGD8Pq_7jx-c',
+            'code': 'iTAoXADbqpAAAAAAAAAEUC3k06-KWdxklS8e0lK7SpQ',
             'grant_type': 'authorization_code',
             'client_id': 'k4nveerwvjeaavs',
             'client_secret': 'z5j4d0pw542yei0'
