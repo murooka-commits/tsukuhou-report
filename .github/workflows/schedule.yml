@@ -37,4 +37,17 @@ jobs:
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        run: python main.py
+        run: |
+      python -c "
+      import requests, os
+      LINE_ACCESS_TOKEN = os.environ['LINE_ACCESS_TOKEN']
+      LINE_USER_ID = os.environ['LINE_USER_ID']
+      url = 'https://api.line.me/v2/bot/message/push'
+      headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LINE_ACCESS_TOKEN}
+      payload = {'to': LINE_USER_ID, 'messages': [{'type': 'text', 'text': 'テスト'}]}
+      print('送信先ID:', LINE_USER_ID)
+      print('ID文字数:', len(LINE_USER_ID))
+      resp = requests.post(url, headers=headers, json=payload)
+      print('ステータス:', resp.status_code)
+      print('レスポンス全文:', resp.text)
+      "
