@@ -3,6 +3,7 @@ import time
 import requests
 import dropbox
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -129,25 +130,28 @@ def send_line_message(text: str) -> None:
         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
     }
     payload = {"to": LINE_USER_ID, "messages": [{"type": "text", "text": text}]}
-    
-    print(f"LINE送信先ID: {LINE_USER_ID}")
-    print(f"IDの文字数: {len(LINE_USER_ID)}")
-    
     resp = requests.post(url, headers=headers, json=payload)
-    print(f"レスポンスステータス: {resp.status_code}")
-    print(f"レスポンス内容: {resp.text}")
     resp.raise_for_status()
     print(f"LINE送信完了: {resp.status_code}")
 
 
 def main():
     now = datetime.now()
-    month_str = now.strftime("%Y年%-m月")
+
+    # ─── 修正箇所：実行月の「前月」を月名として使用 ───────────
+    # 毎月1日に実行されるため、送るレポートは前月分になる
+    # 例）6月1日実行 → 「5月分」のレポートを送信
+    last_month = now - relativedelta(months=1)
+    month_str = last_month.strftime("%Y年%-m月")
+    # ────────────────────────────────────────────────────────
+
     print("① PDFダウンロード開始...")
     pdf_path = download_pdf()
+
     print("② Dropboxアップロード開始...")
     shared_url = upload_to_dropbox(pdf_path)
     print(f"   共有URL: {shared_url}")
+
     print("③ LINE送信開始...")
     message = (
         f"【{month_str}分 代金回収レポート】\n\n"
