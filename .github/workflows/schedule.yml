@@ -37,4 +37,14 @@ jobs:
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           DROPBOX_TOKEN: ${{ secrets.DROPBOX_TOKEN }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        run: python main.py
+        run: |
+          python -c "
+          import requests
+          r = requests.post('https://api.dropboxapi.com/oauth2/token', data={
+            'code': 'iTAoXADbqpAAAAAAAAET6HRh-S4wVIkGD8Pq_7jx-c',
+            'grant_type': 'authorization_code',
+            'client_id': 'k4nveerwvjeaavs',
+            'client_secret': 'z5j4d0pw542yei0'
+          })
+          print(r.json())
+          "
