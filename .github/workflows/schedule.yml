@@ -23,7 +23,7 @@ jobs:
 
       - name: 必要なライブラリをインストール
         run: |
-          pip install selenium requests dropbox google-auth google-auth-httplib2 google-api-python-client
+          pip install selenium requests dropbox python-dateutil google-auth google-auth-httplib2 google-api-python-client
 
       - name: ChromeDriverをインストール
         run: |
