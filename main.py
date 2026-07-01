@@ -2,7 +2,6 @@ import os
 import time
 import requests
 import dropbox
-from dropbox.oauth import DropboxOAuth2FlowNoRedirect
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from selenium import webdriver
@@ -14,12 +13,11 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ─── 環境変数 ────────────────────────────────────────────────
-LINE_ACCESS_TOKEN    = os.environ["LINE_ACCESS_TOKEN"]
-LINE_USER_ID         = os.environ["LINE_USER_ID"]
-SHOPSERVE_ID         = os.environ["SHOPSERVE_ID"]
-SHOPSERVE_PASS       = os.environ["SHOPSERVE_PASS"]
-DROPBOX_APP_KEY      = os.environ["DROPBOX_APP_KEY"]
-DROPBOX_APP_SECRET   = os.environ["DROPBOX_APP_SECRET"]
+LINE_ACCESS_TOKEN     = os.environ["LINE_ACCESS_TOKEN"]
+SHOPSERVE_ID          = os.environ["SHOPSERVE_ID"]
+SHOPSERVE_PASS        = os.environ["SHOPSERVE_PASS"]
+DROPBOX_APP_KEY       = os.environ["DROPBOX_APP_KEY"]
+DROPBOX_APP_SECRET    = os.environ["DROPBOX_APP_SECRET"]
 DROPBOX_REFRESH_TOKEN = os.environ["DROPBOX_REFRESH_TOKEN"]
 
 LOGIN_URL  = "https://kanri9.shopserve.jp/tsukuhou.ko/"
@@ -105,38 +103,35 @@ def download_pdf() -> str:
 
 
 def upload_to_dropbox(pdf_path: str) -> str:
-    # リフレッシュトークンで自動的に新しいアクセストークンを取得
     dbx = dropbox.Dropbox(
         oauth2_refresh_token=DROPBOX_REFRESH_TOKEN,
         app_key=DROPBOX_APP_KEY,
         app_secret=DROPBOX_APP_SECRET,
     )
-
     filename = os.path.basename(pdf_path)
     dropbox_path = f"/tsukuhou-report/{filename}"
     with open(pdf_path, "rb") as f:
         dbx.files_upload(f.read(), dropbox_path, mode=dropbox.files.WriteMode.overwrite)
     print(f"Dropboxアップロード完了: {dropbox_path}")
-
     try:
         link_meta = dbx.sharing_create_shared_link_with_settings(dropbox_path)
     except dropbox.exceptions.ApiError:
         links = dbx.sharing_list_shared_links(path=dropbox_path).links
         link_meta = links[0]
-
     return link_meta.url.replace("dl=0", "dl=1")
 
 
-def send_line_message(text: str) -> None:
-    url = "https://api.line.me/v2/bot/message/push"
+def send_line_broadcast(text: str) -> None:
+    # ブロードキャスト：全友だちに一斉送信（室岡さん・鈴木社長両方に届く）
+    url = "https://api.line.me/v2/bot/message/broadcast"
     headers = {
         "Content-Type":  "application/json",
         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
     }
-    payload = {"to": LINE_USER_ID, "messages": [{"type": "text", "text": text}]}
+    payload = {"messages": [{"type": "text", "text": text}]}
     resp = requests.post(url, headers=headers, json=payload)
     resp.raise_for_status()
-    print(f"LINE送信完了: {resp.status_code}")
+    print(f"LINE一斉送信完了: {resp.status_code}")
 
 
 def main():
@@ -151,14 +146,14 @@ def main():
     shared_url = upload_to_dropbox(pdf_path)
     print(f"   共有URL: {shared_url}")
 
-    print("③ LINE送信開始...")
+    print("③ LINE一斉送信開始...")
     message = (
         f"【{month_str}分 代金回収レポート】\n\n"
         f"ショップサーブの月次レポートをお送りします。\n"
         f"下記リンクよりPDFをご確認ください。\n\n"
         f"{shared_url}"
     )
-    send_line_message(message)
+    send_line_broadcast(message)
     print("✅ すべての処理が完了しました。")
 
 
