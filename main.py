@@ -13,7 +13,8 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ─── 環境変数 ────────────────────────────────────────────────
-LINE_ACCESS_TOKEN     = os.environ["LINE_ACCESS_TOKEN"]
+LINE_CHANNEL_ID       = os.environ["LINE_CHANNEL_ID"]
+LINE_CHANNEL_SECRET   = os.environ["LINE_CHANNEL_SECRET"]
 SHOPSERVE_ID          = os.environ["SHOPSERVE_ID"]
 SHOPSERVE_PASS        = os.environ["SHOPSERVE_PASS"]
 DROPBOX_APP_KEY       = os.environ["DROPBOX_APP_KEY"]
@@ -121,12 +122,32 @@ def upload_to_dropbox(pdf_path: str) -> str:
     return link_meta.url.replace("dl=0", "dl=1")
 
 
+def get_line_access_token() -> str:
+    """
+    チャネルID・チャネルシークレットだけでステートレスなチャネルアクセストークンを
+    毎回新規発行する。有効期限15分だが直後に使い切るだけなので問題なし。
+    これにより「30日で失効する」問題自体が発生しなくなる。
+    """
+    url = "https://api.line.me/oauth2/v3/token"
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": LINE_CHANNEL_ID,
+        "client_secret": LINE_CHANNEL_SECRET,
+    }
+    resp = requests.post(url, data=data)
+    resp.raise_for_status()
+    token = resp.json()["access_token"]
+    print("LINEアクセストークン発行完了（有効期限15分）")
+    return token
+
+
 def send_line_broadcast(text: str) -> None:
     # ブロードキャスト：全友だちに一斉送信（室岡さん・鈴木社長両方に届く）
+    access_token = get_line_access_token()
     url = "https://api.line.me/v2/bot/message/broadcast"
     headers = {
         "Content-Type":  "application/json",
-        "Authorization": f"Bearer {LINE_ACCESS_TOKEN}",
+        "Authorization": f"Bearer {access_token}",
     }
     payload = {"messages": [{"type": "text", "text": text}]}
     resp = requests.post(url, headers=headers, json=payload)
